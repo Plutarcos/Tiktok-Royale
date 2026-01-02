@@ -6,7 +6,7 @@ import {
   MousePointer2, Play, Square as SquareIcon, 
   Trash2, XCircle, MapPin, 
   Grid3X3, Hammer, X, LayoutGrid, Rows, Columns,
-  MinusCircle, PlusCircle, Dices, Users, Loader2, Flag, Trash, RotateCw
+  MinusCircle, PlusCircle, Dices, Users, Loader2, Flag, Trash, RotateCw, Heart
 } from 'lucide-react';
 import { generateMockFollowers } from './utils/mockData';
 
@@ -44,6 +44,7 @@ const App: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const engineRef = useRef<{ getAudioStream: () => MediaStream | null } | null>(null);
 
   useEffect(() => {
     if (countdown === null) return;
@@ -54,7 +55,6 @@ const App: React.FC = () => {
       const timer = setTimeout(() => {
         setCountdown(null);
         setGameState(prev => ({ ...prev, isRunning: true }));
-        startRecording();
       }, 800);
       return () => clearTimeout(timer);
     }
@@ -64,12 +64,20 @@ const App: React.FC = () => {
     const canvas = document.querySelector('canvas');
     if (!canvas) return;
     
-    const stream = canvas.captureStream(60);
+    const canvasStream = canvas.captureStream(60);
+    const audioStream = engineRef.current?.getAudioStream();
+    
+    // Combina vídeo e áudio
+    const combinedStream = new MediaStream([
+      ...canvasStream.getVideoTracks(),
+      ...(audioStream ? audioStream.getAudioTracks() : [])
+    ]);
+
     const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=h264') 
       ? 'video/webm;codecs=h264' 
       : 'video/webm;codecs=vp9';
 
-    const recorder = new MediaRecorder(stream, { mimeType });
+    const recorder = new MediaRecorder(combinedStream, { mimeType });
     chunksRef.current = [];
     
     recorder.ondataavailable = (e) => {
@@ -105,9 +113,8 @@ const App: React.FC = () => {
     setTimeout(() => {
       const count = 20 + Math.floor(Math.random() * 30);
       const followers = generateMockFollowers(count);
-      // Ensure we use the current spawn coordinates
-      const currentSpawnX = gameState.players[0].spawnX;
-      const currentSpawnY = gameState.players[0].spawnY;
+      const currentSpawnX = gameState.players[0]?.spawnX || 225;
+      const currentSpawnY = gameState.players[0]?.spawnY || 125;
       setGameState(s => ({
         ...s,
         players: applySpawnLayout(currentSpawnX, currentSpawnY, s.config.spawnLayout, followers)
@@ -143,6 +150,7 @@ const App: React.FC = () => {
 
   const handleLayoutChange = (layout: SpawnLayout) => {
     const p1 = gameState.players[0];
+    if (!p1) return;
     setGameState(s => ({
       ...s,
       config: { ...s.config, spawnLayout: layout },
@@ -160,6 +168,7 @@ const App: React.FC = () => {
       })
     }));
     setCountdown(3);
+    startRecording();
   };
 
   const stopSimAndEdit = () => {
@@ -177,121 +186,43 @@ const App: React.FC = () => {
     const canvasWidth = 450;
     const canvasHeight = 800;
     
-    // 1. Randomize Spawn & Finish Locations
-    const side = Math.floor(Math.random() * 4); // 0: Top, 1: Bottom, 2: Left, 3: Right
+    const side = Math.floor(Math.random() * 4);
     let spawnX = 225, spawnY = 100;
     let finishX = 225, finishY = 700;
     
-    if (side === 0) { // Start Top, Finish Bottom
-      spawnX = 50 + Math.random() * (canvasWidth - 100);
-      spawnY = 80;
-      finishX = 50 + Math.random() * (canvasWidth - 100);
-      finishY = canvasHeight - 80;
-    } else if (side === 1) { // Start Bottom, Finish Top
-      spawnX = 50 + Math.random() * (canvasWidth - 100);
-      spawnY = canvasHeight - 80;
-      finishX = 50 + Math.random() * (canvasWidth - 100);
-      finishY = 80;
-    } else if (side === 2) { // Start Left, Finish Right
-      spawnX = 80;
-      spawnY = 100 + Math.random() * (canvasHeight - 200);
-      finishX = canvasWidth - 120;
-      finishY = 100 + Math.random() * (canvasHeight - 200);
-    } else { // Start Right, Finish Left
-      spawnX = canvasWidth - 80;
-      spawnY = 100 + Math.random() * (canvasHeight - 200);
-      finishX = 80;
-      finishY = 100 + Math.random() * (canvasHeight - 200);
-    }
+    if (side === 0) { spawnX = 50 + Math.random() * (canvasWidth - 100); spawnY = 80; finishX = 50 + Math.random() * (canvasWidth - 100); finishY = canvasHeight - 80; }
+    else if (side === 1) { spawnX = 50 + Math.random() * (canvasWidth - 100); spawnY = canvasHeight - 80; finishX = 50 + Math.random() * (canvasWidth - 100); finishY = 80; }
+    else if (side === 2) { spawnX = 80; spawnY = 100 + Math.random() * (canvasHeight - 200); finishX = canvasWidth - 120; finishY = 100 + Math.random() * (canvasHeight - 200); }
+    else { spawnX = canvasWidth - 80; spawnY = 100 + Math.random() * (canvasHeight - 200); finishX = 80; finishY = 100 + Math.random() * (canvasHeight - 200); }
 
-    // 2. Add Finish Objective
-    newObstacles.push({
-      id: 'finish-line',
-      x: finishX - 50,
-      y: finishY - 20,
-      width: 100,
-      height: 40,
-      type: 'finish',
-      color: '#22c55e',
-      rotation: 0
-    });
+    newObstacles.push({ id: 'finish-line', x: finishX - 50, y: finishY - 20, width: 100, height: 40, type: 'finish', color: '#22c55e', rotation: 0 });
 
-    // 3. Grid-Based Maze Logic (Recursive Division flavor)
-    const rows = 12;
-    const cols = 7;
-    const cellW = canvasWidth / cols;
-    const cellH = canvasHeight / rows;
+    const rows = 12; const cols = 7;
+    const cellW = canvasWidth / cols; const cellH = canvasHeight / rows;
 
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const cx = c * cellW;
-        const cy = r * cellH;
-        
-        // Skip cells too close to spawn or finish
+        const cx = c * cellW; const cy = r * cellH;
         const distToSpawn = Math.sqrt(Math.pow(cx + cellW/2 - spawnX, 2) + Math.pow(cy + cellH/2 - spawnY, 2));
         const distToFinish = Math.sqrt(Math.pow(cx + cellW/2 - finishX, 2) + Math.pow(cy + cellH/2 - finishY, 2));
         if (distToSpawn < 100 || distToFinish < 100) continue;
 
         const roll = Math.random();
         if (roll < 0.35) {
-          // Add a structural wall
           const isVert = Math.random() > 0.5;
-          newObstacles.push({
-            id: `wall-${r}-${c}`,
-            x: cx + 10,
-            y: cy + 10,
-            width: isVert ? 15 : cellW - 20,
-            height: isVert ? cellH - 20 : 15,
-            type: 'wall',
-            color: COLORS_THEME[Math.floor(Math.random() * COLORS_THEME.length)].hex,
-            rotation: 0
-          });
+          newObstacles.push({ id: `wall-${r}-${c}`, x: cx + 10, y: cy + 10, width: isVert ? 15 : cellW - 20, height: isVert ? cellH - 20 : 15, type: 'wall', color: COLORS_THEME[Math.floor(Math.random() * COLORS_THEME.length)].hex, rotation: 0 });
         } else if (roll < 0.45) {
-          // Add a trap/death block
-          newObstacles.push({
-            id: `death-${r}-${c}`,
-            x: cx + cellW/4,
-            y: cy + cellH/4,
-            width: cellW/2,
-            height: cellH/2,
-            type: 'death',
-            rotation: Math.random() < 0.5 ? 45 : 0
-          });
+          newObstacles.push({ id: `death-${r}-${c}`, x: cx + cellW/4, y: cy + cellH/4, width: cellW/2, height: cellH/2, type: 'death', rotation: Math.random() < 0.5 ? 45 : 0 });
         } else if (roll < 0.52) {
-          // Add a powerup
           const isShrink = Math.random() > 0.5;
-          newObstacles.push({
-            id: `pwr-${r}-${c}`,
-            x: cx + cellW/4,
-            y: cy + cellH/4,
-            width: cellW/2,
-            height: cellH/2,
-            type: 'powerup',
-            powerupType: isShrink ? 'shrink' : 'grow',
-            rotation: 0
-          });
+          newObstacles.push({ id: `pwr-${r}-${c}`, x: cx + cellW/4, y: cy + cellH/4, width: cellW/2, height: cellH/2, type: 'powerup', powerupType: isShrink ? 'shrink' : 'grow', rotation: 0 });
         } else if (roll < 0.60) {
-          // Add destructible
-          newObstacles.push({
-            id: `dest-${r}-${c}`,
-            x: cx + 5,
-            y: cy + 5,
-            width: cellW - 10,
-            height: cellH - 10,
-            type: 'destructible',
-            health: 3,
-            color: '#f97316'
-          });
+          newObstacles.push({ id: `dest-${r}-${c}`, x: cx + 5, y: cy + 5, width: cellW - 10, height: cellH - 10, type: 'destructible', health: 3, color: '#f97316' });
         }
       }
     }
 
-    // Update state
-    setGameState(s => ({ 
-      ...s, 
-      obstacles: newObstacles,
-      players: applySpawnLayout(spawnX, spawnY, s.config.spawnLayout, s.players)
-    }));
+    setGameState(s => ({ ...s, obstacles: newObstacles, players: applySpawnLayout(spawnX, spawnY, s.config.spawnLayout, s.players) }));
   };
 
   const clearBuild = () => {
@@ -310,7 +241,7 @@ const App: React.FC = () => {
     let powerupType: Obstacle['powerupType'] = undefined;
     if ((tool as string) === 'shrink') { finalType = 'powerup'; powerupType = 'shrink'; }
     else if ((tool as string) === 'grow') { finalType = 'powerup'; powerupType = 'grow'; }
-    setGameState(s => ({...s, obstacles: [...s.obstacles, { ...obs, type: finalType, powerupType, color: selectedColor }]}));
+    setGameState(s => ({...s, obstacles: [...s.obstacles, { ...obs, type: finalType, powerupType, color: selectedColor, health: finalType === 'destructible' ? 3 : 1 }]}));
   };
 
   const handleUpdateObstacle = (updated: Obstacle) => setGameState(s => ({ ...s, obstacles: s.obstacles.map(o => o.id === updated.id ? updated : o) }));
@@ -349,7 +280,7 @@ const App: React.FC = () => {
           {isRecording && (
             <div className="flex items-center gap-2 px-3 py-1.5 bg-red-500/20 rounded-full border border-red-500/50 animate-pulse">
               <div className="w-2 h-2 bg-red-500 rounded-full" />
-              <span className="text-[10px] font-black uppercase text-red-500">Gravando Partida</span>
+              <span className="text-[10px] font-black uppercase text-red-500">Rec 🔴</span>
             </div>
           )}
           <div className="flex bg-black/50 p-1.5 rounded-2xl border border-white/5 shadow-inner">
@@ -366,7 +297,6 @@ const App: React.FC = () => {
               <div className="flex items-center justify-between mb-4">
                 <div className="flex flex-col">
                    <p className="text-[10px] font-black text-[#00f2ea] uppercase tracking-widest">Map Builder</p>
-                   <p className="text-[8px] text-slate-500 uppercase">Gere layouts infinitos</p>
                 </div>
                 <div className="flex gap-2">
                   <button onClick={generateRandomMap} className="p-2 bg-amber-500/10 text-amber-500 border border-amber-500/20 rounded-lg hover:bg-amber-500/20 transition-all hover:scale-110" title="Gerar Labirinto Aleatório"><Dices size={18} /></button>
@@ -427,6 +357,24 @@ const App: React.FC = () => {
                     />
                   </div>
                 </div>
+
+                {selectedObstacle.type === 'destructible' && (
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <p className="text-[9px] font-bold text-slate-500 uppercase">Resistência (Hits)</p>
+                      <span className="text-[10px] font-mono text-orange-500 font-bold">{selectedObstacle.health || 3}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Heart size={14} className="text-slate-500" />
+                      <input 
+                        type="range" min={1} max={10} step={1} 
+                        value={selectedObstacle.health || 3} 
+                        onChange={e => handleUpdateObstacle({...selectedObstacle, health: parseInt(e.target.value)})} 
+                        className="flex-1 accent-orange-500 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer" 
+                      />
+                    </div>
+                  </div>
+                )}
               </section>
             )}
 
@@ -439,28 +387,19 @@ const App: React.FC = () => {
               </div>
             </section>
 
-            <button 
-              onClick={clearBuild} 
-              className="mt-auto w-full p-4 rounded-xl bg-red-500/10 text-red-400 text-[10px] font-black uppercase border border-red-500/20 hover:bg-red-500/20 transition-all flex items-center justify-center gap-2"
-            >
+            <button onClick={clearBuild} className="mt-auto w-full p-4 rounded-xl bg-red-500/10 text-red-400 text-[10px] font-black uppercase border border-red-500/20 hover:bg-red-500/20 transition-all flex items-center justify-center gap-2">
               <Trash size={14} /> Limpar Mapa
             </button>
           </aside>
         )}
         <main className="flex-1 relative bg-[#050505] flex flex-col items-center justify-center p-4 overflow-hidden">
-          {countdown !== null && (
-            <div className="absolute inset-0 z-[60] bg-black/40 backdrop-blur-md flex items-center justify-center pointer-events-none animate-in fade-in duration-300">
-              <div className="text-[12rem] font-black font-bungee text-white drop-shadow-[0_0_40px_rgba(255,0,80,0.8)] animate-bounce select-none">
-                {countdown === 0 ? 'GO!' : countdown}
-              </div>
-            </div>
-          )}
-          
           <SimulationEngine 
+            ref={engineRef}
             state={gameState} 
             tool={tool as any} 
             useSnap={useSnap} 
             selectedId={selectedId} 
+            countdown={countdown}
             onUpdatePlayers={(p) => setGameState(s => ({...s, players: p}))} 
             onUpdateSpawn={handleUpdateSpawn} 
             onAddObstacle={handleAddObstacle} 
@@ -470,22 +409,13 @@ const App: React.FC = () => {
             onFinish={(w) => { 
                 setGameState(s => ({...s, winner: w, isRunning: false})); 
                 setIsGameEnded(true); 
-                stopRecording();
+                // A gravação é parada no botão de "Voltar ao Editor" ou após o fim para capturar o card
             }} 
           />
           
           {isGameEnded && (
-            <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-6 animate-in zoom-in duration-300">
-              <div className="bg-[#1a1a1e] border-2 border-[#00f2ea]/30 p-12 rounded-3xl text-center max-w-sm w-full shadow-[0_0_100px_rgba(0,242,234,0.2)]">
-                <div className="w-20 h-20 bg-[#00f2ea] rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg rotate-12">
-                   <Users className="text-black" size={40} />
-                </div>
-                <h2 className="font-bungee text-4xl mb-2 text-white tracking-tighter">VENCEDOR!</h2>
-                <div className="text-2xl font-black uppercase italic mt-4 drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]" style={{ color: gameState.winner?.color || '#ff0050' }}>
-                  {gameState.winner ? (gameState.winner.name) : 'NINGUÉM SOBREVIVEU'}
-                </div>
-                <button onClick={stopSimAndEdit} className="mt-10 w-full bg-white text-black py-4 rounded-xl font-black uppercase text-sm hover:scale-105 active:scale-95 transition-transform shadow-xl">VOLTAR AO EDITOR</button>
-              </div>
+            <div className="absolute top-10 right-10 z-[100] animate-in slide-in-from-top-10 duration-500">
+               <button onClick={stopSimAndEdit} className="bg-white text-black px-6 py-3 rounded-xl font-black uppercase text-xs shadow-2xl hover:scale-105 active:scale-95 transition-all">VOLTAR AO EDITOR</button>
             </div>
           )}
         </main>

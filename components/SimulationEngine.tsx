@@ -1,5 +1,5 @@
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useImperativeHandle, forwardRef } from 'react';
 import { Player, GameMode, GameState, Obstacle } from '../types';
 
 interface EngineProps {
@@ -7,6 +7,7 @@ interface EngineProps {
   tool: Obstacle['type'] | 'select' | 'shrink' | 'grow' | 'spawn';
   useSnap: boolean;
   selectedId: string | null;
+  countdown: number | null;
   onUpdatePlayers: (players: Player[]) => void;
   onUpdateSpawn: (x: number, y: number) => void;
   onAddObstacle: (obs: Obstacle) => void;
@@ -24,12 +25,12 @@ interface Star {
   x: number; y: number; size: number; opacity: number; blinkSpeed: number;
 }
 
-const SimulationEngine: React.FC<EngineProps> = ({ 
-  state, tool, useSnap, selectedId,
-  onUpdatePlayers, onUpdateSpawn, onAddObstacle, onUpdateObstacle, onRemoveObstacle, onSelectObstacle, onFinish 
-}) => {
+const SimulationEngine = forwardRef((props: EngineProps, ref) => {
+  const { state, tool, useSnap, selectedId, countdown, onUpdatePlayers, onUpdateSpawn, onAddObstacle, onUpdateObstacle, onRemoveObstacle, onSelectObstacle, onFinish } = props;
+  
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioCtx = useRef<AudioContext | null>(null);
+  const audioDestination = useRef<MediaStreamAudioDestinationNode | null>(null);
   const animationRef = useRef<number | undefined>(undefined);
   const playersRef = useRef<Player[]>([]);
   const obstaclesRef = useRef<Obstacle[]>([]);
@@ -49,6 +50,13 @@ const SimulationEngine: React.FC<EngineProps> = ({
   const GRID_SIZE = 10; 
   const HANDLE_SIZE = 20; 
 
+  useImperativeHandle(ref, () => ({
+    getAudioStream: () => {
+      if (!audioDestination.current) return null;
+      return audioDestination.current.stream;
+    }
+  }));
+
   // Inicializar estrelas fixas
   useEffect(() => {
     const stars: Star[] = [];
@@ -65,13 +73,23 @@ const SimulationEngine: React.FC<EngineProps> = ({
   }, []);
 
   const playSound = (type: 'impact' | 'break' | 'death' | 'win' | 'powerup') => {
-    if (!audioCtx.current) audioCtx.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    if (!audioCtx.current) {
+      audioCtx.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      audioDestination.current = audioCtx.current.createMediaStreamDestination();
+    }
     const ctx = audioCtx.current;
     if (ctx.state === 'suspended') ctx.resume();
+    
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
+    
     osc.connect(gain);
     gain.connect(ctx.destination);
+    // Conecta à saída de gravação
+    if (audioDestination.current) {
+      gain.connect(audioDestination.current);
+    }
+    
     const now = ctx.currentTime;
 
     if (type === 'impact') {
@@ -164,65 +182,20 @@ const SimulationEngine: React.FC<EngineProps> = ({
   };
 
   const drawBackground = (ctx: CanvasRenderingContext2D) => {
-    // 1. Espaço Profundo (Preto)
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-    // 2. Nebulosas (Gradients Neon)
     const time = Date.now() * 0.001;
-    
-    // Nebulosa Ciano
-    const gradCyan = ctx.createRadialGradient(
-      CANVAS_WIDTH * 0.2 + Math.sin(time * 0.5) * 50, 
-      CANVAS_HEIGHT * 0.3 + Math.cos(time * 0.5) * 50, 
-      0, 
-      CANVAS_WIDTH * 0.2, CANVAS_HEIGHT * 0.3, 300
-    );
-    gradCyan.addColorStop(0, 'rgba(0, 242, 234, 0.05)');
-    gradCyan.addColorStop(1, 'rgba(0, 0, 0, 0)');
-    ctx.fillStyle = gradCyan;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-    // Nebulosa Rosa
-    const gradPink = ctx.createRadialGradient(
-      CANVAS_WIDTH * 0.8 + Math.cos(time * 0.3) * 60, 
-      CANVAS_HEIGHT * 0.7 + Math.sin(time * 0.3) * 60, 
-      0, 
-      CANVAS_WIDTH * 0.8, CANVAS_HEIGHT * 0.7, 400
-    );
-    gradPink.addColorStop(0, 'rgba(255, 0, 80, 0.05)');
-    gradPink.addColorStop(1, 'rgba(0, 0, 0, 0)');
-    ctx.fillStyle = gradPink;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-    // 3. Estrelas
+    const gradCyan = ctx.createRadialGradient(CANVAS_WIDTH * 0.2 + Math.sin(time * 0.5) * 50, CANVAS_HEIGHT * 0.3 + Math.cos(time * 0.5) * 50, 0, CANVAS_WIDTH * 0.2, CANVAS_HEIGHT * 0.3, 300);
+    gradCyan.addColorStop(0, 'rgba(0, 242, 234, 0.05)'); gradCyan.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = gradCyan; ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    const gradPink = ctx.createRadialGradient(CANVAS_WIDTH * 0.8 + Math.cos(time * 0.3) * 60, CANVAS_HEIGHT * 0.7 + Math.sin(time * 0.3) * 60, 0, CANVAS_WIDTH * 0.8, CANVAS_HEIGHT * 0.7, 400);
+    gradPink.addColorStop(0, 'rgba(255, 0, 80, 0.05)'); gradPink.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = gradPink; ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     starsRef.current.forEach(star => {
-      star.opacity += star.blinkSpeed;
-      if (star.opacity > 1 || star.opacity < 0.2) star.blinkSpeed *= -1;
-      
-      ctx.fillStyle = `rgba(255, 255, 255, ${star.opacity})`;
-      ctx.beginPath();
-      ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
-      ctx.fill();
+      star.opacity += star.blinkSpeed; if (star.opacity > 1 || star.opacity < 0.2) star.blinkSpeed *= -1;
+      ctx.fillStyle = `rgba(255, 255, 255, ${star.opacity})`; ctx.beginPath(); ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2); ctx.fill();
     });
-
-    // 4. Constelações Faintas
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
-    ctx.lineWidth = 0.5;
-    for (let i = 0; i < 15; i++) {
-      const s1 = starsRef.current[i * 5];
-      const s2 = starsRef.current[i * 5 + 1];
-      if (s1 && s2) {
-        ctx.beginPath();
-        ctx.moveTo(s1.x, s1.y);
-        ctx.lineTo(s2.x, s2.y);
-        ctx.stroke();
-      }
-    }
-
-    // 5. Grid Neon Faint
-    ctx.strokeStyle = 'rgba(0, 242, 234, 0.03)';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(0, 242, 234, 0.03)'; ctx.lineWidth = 1;
     for(let i=0; i<CANVAS_WIDTH; i+=40) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,CANVAS_HEIGHT); ctx.stroke(); }
     for(let i=0; i<CANVAS_HEIGHT; i+=40) { ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(CANVAS_WIDTH,i); ctx.stroke(); }
   };
@@ -241,7 +214,6 @@ const SimulationEngine: React.FC<EngineProps> = ({
         let { x, y, vx, vy, size, usedPowerups } = p;
         x += vx; y += vy;
 
-        // Limites Canvas
         if (x < 0) { x = 0; vx = Math.abs(vx); playSound('impact'); createParticles(x, y + size/2, p.color); }
         if (x > CANVAS_WIDTH - size) { x = CANVAS_WIDTH - size; vx = -Math.abs(vx); playSound('impact'); createParticles(x + size, y + size/2, p.color); }
         if (y < 0) { y = 0; vy = Math.abs(vy); playSound('impact'); createParticles(x + size/2, y, p.color); }
@@ -278,8 +250,7 @@ const SimulationEngine: React.FC<EngineProps> = ({
                 if (obs.powerupType === 'shrink') { size = Math.max(8, size * 0.6); }
                 else if (obs.powerupType === 'grow') { size = Math.min(100, size * 1.5); }
                 usedPowerups = [...usedPowerups, obs.id];
-                playSound('powerup');
-                createParticles(x + size/2, y + size/2, p.color, 15, 3);
+                playSound('powerup'); createParticles(x + size/2, y + size/2, p.color, 15, 3);
               }
             }
           }
@@ -311,9 +282,7 @@ const SimulationEngine: React.FC<EngineProps> = ({
 
       particles.current = particles.current.filter(p => { p.x += p.vx; p.y += p.vy; p.life -= 0.03; return p.life > 0; });
       onUpdatePlayers(simulationPlayers);
-      
       if (foundWinner) { onFinish(foundWinner); return; }
-
       const survivors = simulationPlayers.filter(p => !p.isEliminated);
       if (simulationPlayers.length > 0) {
         if (survivors.length === 1 && simulationPlayers.length > 1) { onFinish(survivors[0]); return; }
@@ -330,56 +299,23 @@ const SimulationEngine: React.FC<EngineProps> = ({
     const ctx = canvas.getContext('2d', { alpha: false }); if (!ctx) return;
     const render = () => {
       drawBackground(ctx);
-
       state.obstacles.forEach(obs => {
-        ctx.save();
-        ctx.translate(obs.x + obs.width / 2, obs.y + obs.height / 2);
-        ctx.rotate((obs.rotation || 0) * Math.PI / 180);
-        ctx.translate(-(obs.width / 2), -(obs.height / 2));
-        
+        ctx.save(); ctx.translate(obs.x + obs.width / 2, obs.y + obs.height / 2); ctx.rotate((obs.rotation || 0) * Math.PI / 180); ctx.translate(-(obs.width / 2), -(obs.height / 2));
         if (obs.type === 'death') {
-          // Bloco Neon de Morte (Revertido conforme solicitado)
-          ctx.fillStyle = '#ff0050';
-          ctx.shadowBlur = 15;
-          ctx.shadowColor = '#ff0050';
-          ctx.fillRect(0, 0, obs.width, obs.height);
-          ctx.strokeStyle = '#fff';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(0, 0, obs.width, obs.height);
-          
-          // Pattern de Perigo
+          ctx.fillStyle = '#ff0050'; ctx.shadowBlur = 15; ctx.shadowColor = '#ff0050'; ctx.fillRect(0, 0, obs.width, obs.height); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(0, 0, obs.width, obs.height);
           ctx.fillStyle = 'rgba(0,0,0,0.3)';
-          for (let i = -obs.width; i < obs.width * 2; i += 15) {
-            ctx.beginPath();
-            ctx.moveTo(i, 0);
-            ctx.lineTo(i + 10, 0);
-            ctx.lineTo(i - 5, obs.height);
-            ctx.lineTo(i - 15, obs.height);
-            ctx.closePath();
-            ctx.fill();
-          }
+          for (let i = -obs.width; i < obs.width * 2; i += 15) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i + 10, 0); ctx.lineTo(i - 5, obs.height); ctx.lineTo(i - 15, obs.height); ctx.closePath(); ctx.fill(); }
         } else if (obs.type === 'destructible') {
-          ctx.fillStyle = obs.color || '#94a3b8'; ctx.fillRect(0, 0, obs.width, obs.height);
-          ctx.strokeStyle = '#fff5'; ctx.strokeRect(0, 0, obs.width, obs.height);
-          if (obs.health !== undefined) { ctx.fillStyle = '#fff'; ctx.font = 'bold 10px Inter'; ctx.textAlign = 'center'; ctx.fillText(obs.health.toString(), obs.width/2, obs.height/2+5); }
+          ctx.fillStyle = obs.color || '#f97316'; ctx.fillRect(0, 0, obs.width, obs.height); ctx.strokeStyle = '#fff5'; ctx.strokeRect(0, 0, obs.width, obs.height);
+          if (obs.health !== undefined) { ctx.fillStyle = '#fff'; ctx.font = '900 12px Bungee'; ctx.textAlign = 'center'; ctx.fillText(obs.health.toString(), obs.width/2, obs.height/2+5); }
         } else if (obs.type === 'finish') {
-            ctx.fillStyle = '#22c55e';
-            ctx.shadowBlur = 20;
-            ctx.shadowColor = '#22c55e';
-            ctx.fillRect(0, 0, obs.width, obs.height);
-            ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
-            ctx.strokeRect(0, 0, obs.width, obs.height);
+            ctx.fillStyle = '#22c55e'; ctx.shadowBlur = 20; ctx.shadowColor = '#22c55e'; ctx.fillRect(0, 0, obs.width, obs.height); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(0, 0, obs.width, obs.height);
         } else if (obs.type === 'powerup') {
           let color = obs.powerupType === 'shrink' ? '#a855f7' : '#f97316';
-          ctx.fillStyle = color + '44'; 
-          ctx.shadowBlur = 15;
-          ctx.shadowColor = color;
-          ctx.fillRect(0, 0, obs.width, obs.height);
-          ctx.strokeStyle = color; ctx.setLineDash([4, 4]); ctx.strokeRect(0, 0, obs.width, obs.height); ctx.setLineDash([]);
+          ctx.fillStyle = color + '44'; ctx.shadowBlur = 15; ctx.shadowColor = color; ctx.fillRect(0, 0, obs.width, obs.height); ctx.strokeStyle = color; ctx.setLineDash([4, 4]); ctx.strokeRect(0, 0, obs.width, obs.height); ctx.setLineDash([]);
           ctx.fillStyle = '#fff'; ctx.font = '900 10px Inter'; ctx.textAlign = 'center'; ctx.fillText(obs.powerupType === 'shrink' ? 'MINI' : 'MAXI', obs.width/2, obs.height/2+4);
         } else {
-          ctx.fillStyle = obs.color || '#1a1a1e'; ctx.fillRect(0, 0, obs.width, obs.height);
-          ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.strokeRect(0, 0, obs.width, obs.height);
+          ctx.fillStyle = obs.color || '#1a1a1e'; ctx.fillRect(0, 0, obs.width, obs.height); ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.strokeRect(0, 0, obs.width, obs.height);
         }
         if (selectedId === obs.id) { ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 3; ctx.strokeRect(-4,-4,obs.width+8,obs.height+8); }
         ctx.restore();
@@ -387,21 +323,79 @@ const SimulationEngine: React.FC<EngineProps> = ({
 
       playersRef.current.forEach(p => {
         if (p.isEliminated || p.finished) return;
-        ctx.save();
-        ctx.shadowBlur = 15; ctx.shadowColor = p.color; ctx.fillStyle = p.color;
-        ctx.fillRect(p.x, p.y, p.size, p.size);
-        ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(p.x, p.y, p.size, p.size);
-        ctx.restore();
+        ctx.save(); ctx.shadowBlur = 15; ctx.shadowColor = p.color; ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, p.size, p.size); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(p.x, p.y, p.size, p.size); ctx.restore();
       });
-
       particles.current.forEach(p => { ctx.globalAlpha = p.life; ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, p.size, p.size); });
       ctx.globalAlpha = 1.0;
       if (previewRect) { ctx.strokeStyle = '#00f2ea'; ctx.setLineDash([5, 5]); ctx.strokeRect(previewRect.x, previewRect.y, previewRect.width, previewRect.height); ctx.setLineDash([]); }
+
+      // RENDERIZAÇÃO DA CONTAGEM (DIRETO NO CANVAS PARA A GRAVAÇÃO)
+      if (countdown !== null) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        ctx.font = 'bold 120px Bungee';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#ff0050';
+        ctx.shadowBlur = 30;
+        ctx.shadowColor = '#ff0050';
+        ctx.fillText(countdown === 0 ? 'GO!' : countdown.toString(), CANVAS_WIDTH/2, CANVAS_HEIGHT/2);
+        ctx.restore();
+      }
+
+      // RENDERIZAÇÃO DO VENCEDOR (DIRETO NO CANVAS PARA A GRAVAÇÃO)
+      if (state.winner) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        
+        // Modal do Vencedor
+        const modalW = 320;
+        const modalH = 250;
+        const mx = (CANVAS_WIDTH - modalW)/2;
+        const my = (CANVAS_HEIGHT - modalH)/2;
+        
+        ctx.fillStyle = '#1a1a1e';
+        ctx.strokeStyle = '#00f2ea';
+        ctx.lineWidth = 3;
+        ctx.shadowBlur = 50;
+        ctx.shadowColor = 'rgba(0, 242, 234, 0.3)';
+        ctx.beginPath();
+        ctx.roundRect(mx, my, modalW, modalH, 30);
+        ctx.fill();
+        ctx.stroke();
+        
+        // "VENCEDOR!"
+        ctx.font = '900 24px Bungee';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.fillText('VENCEDOR!', CANVAS_WIDTH/2, my + 50);
+        
+        // Bloco de Cor do Vencedor (Substituindo o ícone generic)
+        const blockSize = 60;
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = state.winner.color;
+        ctx.fillStyle = state.winner.color;
+        ctx.fillRect(CANVAS_WIDTH/2 - blockSize/2, my + 70, blockSize, blockSize);
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(CANVAS_WIDTH/2 - blockSize/2, my + 70, blockSize, blockSize);
+        
+        // Nome do Vencedor
+        ctx.shadowBlur = 0;
+        ctx.font = 'bold 20px Inter';
+        ctx.fillStyle = state.winner.color;
+        ctx.fillText(state.winner.name, CANVAS_WIDTH/2, my + 170);
+        
+        ctx.restore();
+      }
+
       animationRef.current = requestAnimationFrame(render);
     };
     animationRef.current = requestAnimationFrame(render);
     return () => { if (animationRef.current) cancelAnimationFrame(animationRef.current); };
-  }, [state.obstacles, previewRect, state.isRunning, state.mode, state.players, selectedId]);
+  }, [state.obstacles, previewRect, state.isRunning, state.mode, state.players, selectedId, countdown, state.winner]);
 
   return (
     <div className="w-full h-full p-4 flex items-center justify-center">
@@ -411,6 +405,6 @@ const SimulationEngine: React.FC<EngineProps> = ({
       </div>
     </div>
   );
-};
+});
 
 export default SimulationEngine;
