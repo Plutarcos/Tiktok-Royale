@@ -50,10 +50,30 @@ const SimulationEngine = forwardRef((props: EngineProps, ref) => {
   const GRID_SIZE = 10; 
   const HANDLE_SIZE = 20; 
 
+  // Helper to ensure audio system is ready
+  const ensureAudio = () => {
+    if (!audioCtx.current) {
+      audioCtx.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      audioDestination.current = audioCtx.current.createMediaStreamDestination();
+      
+      // Keep context alive with a silent oscillator if needed
+      const silentOsc = audioCtx.current.createOscillator();
+      const silentGain = audioCtx.current.createGain();
+      silentGain.gain.value = 0;
+      silentOsc.connect(silentGain);
+      silentGain.connect(audioCtx.current.destination);
+      silentOsc.start();
+    }
+    if (audioCtx.current.state === 'suspended') {
+      audioCtx.current.resume();
+    }
+    return { ctx: audioCtx.current, dest: audioDestination.current! };
+  };
+
   useImperativeHandle(ref, () => ({
     getAudioStream: () => {
-      if (!audioDestination.current) return null;
-      return audioDestination.current.stream;
+      const { dest } = ensureAudio();
+      return dest.stream;
     }
   }));
 
@@ -73,22 +93,14 @@ const SimulationEngine = forwardRef((props: EngineProps, ref) => {
   }, []);
 
   const playSound = (type: 'impact' | 'break' | 'death' | 'win' | 'powerup') => {
-    if (!audioCtx.current) {
-      audioCtx.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-      audioDestination.current = audioCtx.current.createMediaStreamDestination();
-    }
-    const ctx = audioCtx.current;
-    if (ctx.state === 'suspended') ctx.resume();
+    const { ctx, dest } = ensureAudio();
     
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     
     osc.connect(gain);
     gain.connect(ctx.destination);
-    // Conecta à saída de gravação
-    if (audioDestination.current) {
-      gain.connect(audioDestination.current);
-    }
+    gain.connect(dest);
     
     const now = ctx.currentTime;
 

@@ -6,7 +6,8 @@ import {
   MousePointer2, Play, Square as SquareIcon, 
   Trash2, XCircle, MapPin, 
   Grid3X3, Hammer, X, LayoutGrid, Rows, Columns,
-  MinusCircle, PlusCircle, Dices, Users, Loader2, Flag, Trash, RotateCw, Heart
+  MinusCircle, PlusCircle, Dices, Users, Loader2, Flag, Trash, RotateCw, Heart, 
+  RotateCcw, Pause, PlayCircle, Video, VideoOff
 } from 'lucide-react';
 import { generateMockFollowers } from './utils/mockData';
 
@@ -44,7 +45,7 @@ const App: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const engineRef = useRef<{ getAudioStream: () => MediaStream | null } | null>(null);
+  const engineRef = useRef<{ getAudioStream: () => MediaStream | null }> (null);
 
   useEffect(() => {
     if (countdown === null) return;
@@ -54,7 +55,15 @@ const App: React.FC = () => {
     } else if (countdown === 0) {
       const timer = setTimeout(() => {
         setCountdown(null);
-        setGameState(prev => ({ ...prev, isRunning: true }));
+        // Ao fim da contagem, iniciamos com velocidade
+        setGameState(prev => ({ 
+          ...prev, 
+          isRunning: true,
+          players: prev.players.map(p => {
+            const angle = Math.random() * Math.PI * 2;
+            return { ...p, vx: Math.cos(angle) * 3.5, vy: Math.sin(angle) * 3.5 };
+          })
+        }));
       }, 800);
       return () => clearTimeout(timer);
     }
@@ -64,15 +73,15 @@ const App: React.FC = () => {
     const canvas = document.querySelector('canvas');
     if (!canvas) return;
     
-    const canvasStream = canvas.captureStream(60);
     const audioStream = engineRef.current?.getAudioStream();
+    const canvasStream = canvas.captureStream(60);
     
-    // Combina vídeo e áudio
-    const combinedStream = new MediaStream([
-      ...canvasStream.getVideoTracks(),
-      ...(audioStream ? audioStream.getAudioTracks() : [])
-    ]);
+    const tracks = [...canvasStream.getVideoTracks()];
+    if (audioStream) {
+      tracks.push(...audioStream.getAudioTracks());
+    }
 
+    const combinedStream = new MediaStream(tracks);
     const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=h264') 
       ? 'video/webm;codecs=h264' 
       : 'video/webm;codecs=vp9';
@@ -105,6 +114,14 @@ const App: React.FC = () => {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
     }
+  };
+
+  const handleStartRecordingAndSim = () => {
+    if (!isRecording) {
+      startRecording();
+    }
+    // Sempre reinicia a simulação se clicar em gravar (para pegar a contagem)
+    handleRestartSimulation();
   };
 
   const importFollowers = () => {
@@ -158,23 +175,40 @@ const App: React.FC = () => {
     }));
   };
 
-  const startCountdown = () => {
+  const handleRestartSimulation = () => {
     setIsGameEnded(false);
     setGameState(prev => ({ 
       ...prev, mode: GameMode.SIMULATING, isRunning: false, winner: null,
-      players: prev.players.map(p => {
-        const angle = Math.random() * Math.PI * 2;
-        return { ...p, isEliminated: false, size: p.initialSize, x: p.spawnX, y: p.spawnY, vx: Math.cos(angle) * 3.5, vy: Math.sin(angle) * 3.5, usedPowerups: [] };
-      })
+      players: prev.players.map(p => ({ ...p, isEliminated: false, size: p.initialSize, x: p.spawnX, y: p.spawnY, vx: 0, vy: 0, usedPowerups: [], finished: false, health: 100 }))
     }));
     setCountdown(3);
-    startRecording();
+  };
+
+  const startSimulation = () => {
+    if (gameState.mode === GameMode.EDITOR || gameState.winner || isGameEnded) {
+      handleRestartSimulation();
+    } else {
+      setGameState(prev => ({ ...prev, isRunning: true }));
+    }
+  };
+
+  const pauseSimulation = () => {
+    setGameState(prev => ({ ...prev, isRunning: false }));
+  };
+
+  const resetSimulation = () => {
+    setCountdown(null);
+    setIsGameEnded(false);
+    setGameState(prev => ({
+      ...prev, isRunning: false, winner: null,
+      players: prev.players.map(p => ({ ...p, x: p.spawnX, y: p.spawnY, vx: 0, vy: 0, size: p.initialSize, isEliminated: false, usedPowerups: [], finished: false, health: 100 }))
+    }));
   };
 
   const stopSimAndEdit = () => {
     setCountdown(null);
     setIsGameEnded(false);
-    stopRecording();
+    // Não paramos a gravação automaticamente para deixar o usuário decidir
     setGameState(prev => ({
       ...prev, mode: GameMode.EDITOR, isRunning: false, winner: null,
       players: prev.players.map(p => ({ ...p, x: p.spawnX, y: p.spawnY, vx: 0, vy: 0, size: p.initialSize, isEliminated: false, usedPowerups: [] }))
@@ -241,7 +275,7 @@ const App: React.FC = () => {
     let powerupType: Obstacle['powerupType'] = undefined;
     if ((tool as string) === 'shrink') { finalType = 'powerup'; powerupType = 'shrink'; }
     else if ((tool as string) === 'grow') { finalType = 'powerup'; powerupType = 'grow'; }
-    setGameState(s => ({...s, obstacles: [...s.obstacles, { ...obs, type: finalType, powerupType, color: selectedColor, health: finalType === 'destructible' ? 3 : 1 }]}));
+    setGameState(s => ({...s, obstacles: [...s.obstacles, { ...obs, type: finalType, powerupType, color: selectedColor, health: finalType === 'destructible' ? (obs.health || 3) : 1 }]}));
   };
 
   const handleUpdateObstacle = (updated: Obstacle) => setGameState(s => ({ ...s, obstacles: s.obstacles.map(o => o.id === updated.id ? updated : o) }));
@@ -259,21 +293,58 @@ const App: React.FC = () => {
           <h1 className="text-xl font-black tracking-tighter uppercase italic font-bungee">TIKTOK<span className="text-[#00f2ea]">ROYALE</span></h1>
         </div>
 
-        <div className="flex-1 max-w-md mx-8 flex gap-2">
-          <input 
-            type="text" 
-            placeholder="Username do TikTok..." 
-            value={tiktokUser}
-            onChange={e => setTiktokUser(e.target.value)}
-            className="w-full bg-black/40 border border-white/10 rounded-xl py-2 px-4 text-sm font-bold focus:border-[#00f2ea]/50 transition-all outline-none"
-          />
-          <button 
-            onClick={importFollowers}
-            disabled={!tiktokUser || isImporting}
-            className="bg-[#00f2ea] hover:bg-[#00f2ea]/80 text-black px-6 rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-30"
-          >
-            {isImporting ? <Loader2 size={14} className="animate-spin" /> : 'CONVOCAR'}
-          </button>
+        <div className="flex-1 max-w-md mx-8 flex items-center justify-center gap-4">
+          {gameState.mode === GameMode.EDITOR ? (
+            <div className="w-full flex gap-2">
+              <input 
+                type="text" 
+                placeholder="Username do TikTok..." 
+                value={tiktokUser}
+                onChange={e => setTiktokUser(e.target.value)}
+                className="w-full bg-black/40 border border-white/10 rounded-xl py-2 px-4 text-sm font-bold focus:border-[#00f2ea]/50 transition-all outline-none"
+              />
+              <button 
+                onClick={importFollowers}
+                disabled={!tiktokUser || isImporting}
+                className="bg-[#00f2ea] hover:bg-[#00f2ea]/80 text-black px-6 rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-30"
+              >
+                {isImporting ? <Loader2 size={14} className="animate-spin" /> : 'CONVOCAR'}
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3">
+              <button onClick={resetSimulation} className="p-3 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 text-white transition-all flex items-center gap-2 group" title="Resetar Posições">
+                <RotateCcw size={20} className="group-active:rotate-[-180deg] transition-transform duration-500" />
+                <span className="text-[10px] font-black uppercase tracking-wider hidden sm:inline">Resetar</span>
+              </button>
+              
+              {gameState.isRunning ? (
+                <button onClick={pauseSimulation} className="p-4 bg-amber-500 text-black rounded-2xl hover:bg-amber-400 transition-all shadow-lg shadow-amber-500/20 flex items-center gap-2" title="Pausar">
+                  <Pause size={24} fill="currentColor" />
+                  <span className="text-xs font-black uppercase tracking-wider">Pausar</span>
+                </button>
+              ) : (
+                <button onClick={startSimulation} className="p-4 bg-[#00f2ea] text-black rounded-2xl hover:bg-[#00f2ea]/80 transition-all shadow-lg shadow-[#00f2ea]/20 flex items-center gap-2" title="Iniciar">
+                  <Play size={24} fill="currentColor" />
+                  <span className="text-xs font-black uppercase tracking-wider">Iniciar</span>
+                </button>
+              )}
+
+              <div className="h-8 w-px bg-white/10 mx-2" />
+
+              {!isRecording ? (
+                <button onClick={handleStartRecordingAndSim} className="p-4 bg-red-600 text-white rounded-2xl hover:bg-red-500 transition-all shadow-lg shadow-red-600/20 flex items-center gap-2" title="Gravar e Iniciar">
+                  <Video size={24} />
+                  <span className="text-xs font-black uppercase tracking-wider">Gravar</span>
+                </button>
+              ) : (
+                <button onClick={stopRecording} className="p-4 bg-slate-700 text-white rounded-2xl hover:bg-slate-600 transition-all flex items-center gap-2" title="Parar Gravação">
+                  <VideoOff size={24} />
+                  <span className="text-xs font-black uppercase tracking-wider">Parar</span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-4">
@@ -285,7 +356,7 @@ const App: React.FC = () => {
           )}
           <div className="flex bg-black/50 p-1.5 rounded-2xl border border-white/5 shadow-inner">
             <button onClick={stopSimAndEdit} className={`px-6 py-2 rounded-xl text-xs font-black transition-all ${gameState.mode === GameMode.EDITOR ? 'bg-white/10 text-white' : 'text-slate-500 hover:text-slate-300'}`}>EDITOR</button>
-            <button onClick={startCountdown} className={`px-6 py-2 rounded-xl text-xs font-black transition-all ${gameState.isRunning || countdown !== null ? 'bg-[#ff0050] text-white shadow-lg shadow-[#ff0050]/20' : 'text-slate-500 hover:text-slate-300'}`}>SIMULAR</button>
+            <button onClick={() => setGameState(s => ({ ...s, mode: GameMode.SIMULATING }))} className={`px-6 py-2 rounded-xl text-xs font-black transition-all ${gameState.mode === GameMode.SIMULATING ? 'bg-[#ff0050] text-white shadow-lg shadow-[#ff0050]/20' : 'text-slate-500 hover:text-slate-300'}`}>SIMULAR</button>
           </div>
         </div>
       </header>
@@ -409,12 +480,14 @@ const App: React.FC = () => {
             onFinish={(w) => { 
                 setGameState(s => ({...s, winner: w, isRunning: false})); 
                 setIsGameEnded(true); 
-                // A gravação é parada no botão de "Voltar ao Editor" ou após o fim para capturar o card
             }} 
           />
           
           {isGameEnded && (
-            <div className="absolute top-10 right-10 z-[100] animate-in slide-in-from-top-10 duration-500">
+            <div className="absolute top-10 right-10 z-[100] animate-in slide-in-from-top-10 duration-500 flex flex-col gap-3">
+               <button onClick={handleRestartSimulation} className="bg-[#00f2ea] text-black px-6 py-3 rounded-xl font-black uppercase text-xs shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center gap-2">
+                 <RotateCcw size={16} /> RECOMEÇAR
+               </button>
                <button onClick={stopSimAndEdit} className="bg-white text-black px-6 py-3 rounded-xl font-black uppercase text-xs shadow-2xl hover:scale-105 active:scale-95 transition-all">VOLTAR AO EDITOR</button>
             </div>
           )}
