@@ -31,6 +31,7 @@ const SimulationEngine = forwardRef((props: EngineProps, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioCtx = useRef<AudioContext | null>(null);
   const audioDestination = useRef<MediaStreamAudioDestinationNode | null>(null);
+  const ambientNode = useRef<OscillatorNode | null>(null);
   const animationRef = useRef<number | undefined>(undefined);
   const playersRef = useRef<Player[]>([]);
   const obstaclesRef = useRef<Obstacle[]>([]);
@@ -55,12 +56,27 @@ const SimulationEngine = forwardRef((props: EngineProps, ref) => {
     if (!audioCtx.current) {
       audioCtx.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 44100 });
       audioDestination.current = audioCtx.current.createMediaStreamDestination();
-      const silentOsc = audioCtx.current.createOscillator();
-      const silentGain = audioCtx.current.createGain();
-      silentGain.gain.value = 0;
-      silentOsc.connect(silentGain);
-      silentGain.connect(audioCtx.current.destination);
-      silentOsc.start();
+      
+      // Som ambiente (Drone Espacial Melhorado)
+      const drone = audioCtx.current.createOscillator();
+      const droneGain = audioCtx.current.createGain();
+      const filter = audioCtx.current.createBiquadFilter();
+      
+      drone.type = 'sawtooth';
+      drone.frequency.setValueAtTime(45, audioCtx.current.currentTime);
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(180, audioCtx.current.currentTime);
+      filter.Q.setValueAtTime(5, audioCtx.current.currentTime);
+      
+      droneGain.gain.setValueAtTime(0.015, audioCtx.current.currentTime);
+      
+      drone.connect(filter);
+      filter.connect(droneGain);
+      droneGain.connect(audioCtx.current.destination);
+      droneGain.connect(audioDestination.current);
+      
+      drone.start();
+      ambientNode.current = drone;
     }
     if (audioCtx.current.state === 'suspended') audioCtx.current.resume();
     return { ctx: audioCtx.current, dest: audioDestination.current! };
@@ -73,6 +89,9 @@ const SimulationEngine = forwardRef((props: EngineProps, ref) => {
     },
     resetTime: () => {
       gameStartTimeRef.current = Date.now();
+    },
+    stopSimulation: () => {
+      gameStartTimeRef.current = null;
     }
   }));
 
@@ -95,28 +114,30 @@ const SimulationEngine = forwardRef((props: EngineProps, ref) => {
 
     if (type === 'impact') {
       osc.type = 'sine'; osc.frequency.setValueAtTime(150, now);
-      gain.gain.setValueAtTime(0.04, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
-      osc.start(now); osc.stop(now + 0.1);
+      gain.gain.setValueAtTime(0.04, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
+      osc.start(now); osc.stop(now + 0.03);
     } else if (type === 'break') {
-      osc.type = 'sawtooth'; osc.frequency.setValueAtTime(40, now); osc.frequency.linearRampToValueAtTime(10, now + 0.2);
-      gain.gain.setValueAtTime(0.15, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
-      osc.start(now); osc.stop(now + 0.2);
+      osc.type = 'square'; osc.frequency.setValueAtTime(80, now); osc.frequency.linearRampToValueAtTime(10, now + 0.1);
+      gain.gain.setValueAtTime(0.08, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+      osc.start(now); osc.stop(now + 0.1);
     } else if (type === 'death' || type === 'squash') {
-      osc.type = 'sawtooth'; osc.frequency.setValueAtTime(type === 'squash' ? 80 : 100, now); 
-      osc.frequency.linearRampToValueAtTime(10, now + 0.4);
-      gain.gain.setValueAtTime(0.25, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+      osc.type = 'sawtooth'; osc.frequency.setValueAtTime(200, now); 
+      osc.frequency.exponentialRampToValueAtTime(20, now + 0.4);
+      gain.gain.setValueAtTime(0.2, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
       osc.start(now); osc.stop(now + 0.4);
     } else if (type === 'powerup') {
-      osc.type = 'triangle'; osc.frequency.setValueAtTime(440, now); osc.frequency.exponentialRampToValueAtTime(880, now + 0.1);
-      gain.gain.setValueAtTime(0.05, now); gain.gain.linearRampToValueAtTime(0, now + 0.1);
-      osc.start(now); osc.stop(now + 0.1);
+      osc.type = 'triangle'; 
+      osc.frequency.setValueAtTime(400, now); 
+      osc.frequency.exponentialRampToValueAtTime(1500, now + 0.15);
+      gain.gain.setValueAtTime(0.06, now); gain.gain.linearRampToValueAtTime(0, now + 0.15);
+      osc.start(now); osc.stop(now + 0.15);
     } else if (type === 'win') {
-      osc.type = 'sine'; 
-      osc.frequency.setValueAtTime(523.25, now); 
-      osc.frequency.setValueAtTime(659.25, now + 0.1); 
-      osc.frequency.setValueAtTime(783.99, now + 0.2); 
-      gain.gain.setValueAtTime(0.1, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
-      osc.start(now); osc.stop(now + 0.5);
+      osc.type = 'square'; 
+      [523, 659, 784, 1046].forEach((f, i) => {
+        osc.frequency.setValueAtTime(f, now + (i * 0.12));
+      });
+      gain.gain.setValueAtTime(0.1, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+      osc.start(now); osc.stop(now + 0.7);
     }
   };
 
@@ -140,34 +161,21 @@ const SimulationEngine = forwardRef((props: EngineProps, ref) => {
 
   const getDynamicObstacleBounds = (obs: Obstacle, elapsed: number) => {
     if (obs.type !== 'filling_wall') return { x: obs.x, y: obs.y, w: obs.width, h: obs.height, isActive: true };
-
     const start = obs.fillingStartTime || 0;
     const dur = obs.fillingDuration || 5;
     const progress = Math.min(1, Math.max(0, (elapsed - start) / dur));
-    
     let x = obs.x, y = obs.y, w = obs.width, h = obs.height;
-    
-    if (obs.fillingDirection === 'down') {
-      h = obs.height * progress;
-    } else if (obs.fillingDirection === 'up') {
-      y = obs.y + obs.height * (1 - progress);
-      h = obs.height * progress;
-    } else if (obs.fillingDirection === 'right') {
-      w = obs.width * progress;
-    } else if (obs.fillingDirection === 'left') {
-      x = obs.x + obs.width * (1 - progress);
-      w = obs.width * progress;
-    }
-
+    if (obs.fillingDirection === 'down') h = obs.height * progress;
+    else if (obs.fillingDirection === 'up') { y = obs.y + obs.height * (1 - progress); h = obs.height * progress; }
+    else if (obs.fillingDirection === 'right') w = obs.width * progress;
+    else if (obs.fillingDirection === 'left') { x = obs.x + obs.width * (1 - progress); w = obs.width * progress; }
     return { x, y, w, h, isActive: progress > 0, isGrowing: progress < 1 && progress > 0 };
   };
 
   const checkCollision = (px: number, py: number, pSize: number, obs: Obstacle, elapsed: number) => {
     const bounds = getDynamicObstacleBounds(obs, elapsed);
     if (!bounds.isActive) return null;
-    if (px < bounds.x + bounds.w && px + pSize > bounds.x && py < bounds.y + bounds.h && py + pSize > bounds.y) {
-      return bounds;
-    }
+    if (px < bounds.x + bounds.w && px + pSize > bounds.x && py < bounds.y + bounds.h && py + pSize > bounds.y) return bounds;
     return null;
   };
 
@@ -209,10 +217,10 @@ const SimulationEngine = forwardRef((props: EngineProps, ref) => {
   // Loop de Física
   useEffect(() => {
     if (!state.isRunning) return;
-    if (!gameStartTimeRef.current) gameStartTimeRef.current = Date.now();
+    if (gameStartTimeRef.current === null) gameStartTimeRef.current = Date.now();
 
     const runPhysics = () => {
-      const elapsed = (Date.now() - gameStartTimeRef.current!) / 1000;
+      const elapsed = gameStartTimeRef.current ? (Date.now() - gameStartTimeRef.current) / 1000 : 0;
       const baseSpeed = 4.0;
       const currentObstacles = [...obstaclesRef.current];
       const obsToRemove: string[] = [];
@@ -221,9 +229,9 @@ const SimulationEngine = forwardRef((props: EngineProps, ref) => {
       
       simulationPlayers = simulationPlayers.map(p => {
         if (p.isEliminated || p.finished) return p;
-        let { x, y, vx, vy, size, usedPowerups, health } = p;
+        let { x, y, vx, vy, size, usedPowerups } = p;
         
-        // Aplica velocidade
+        // Aplica velocidade básica
         x += vx; y += vy;
 
         // Limites de tela
@@ -234,42 +242,42 @@ const SimulationEngine = forwardRef((props: EngineProps, ref) => {
 
         let isEliminated = false, finished = false;
         
-        // Colisões com obstáculos
+        // Detecção de Compressão (Esmagamento)
+        let overlapH = 0; // Sobreposição horizontal acumulada
+        let overlapV = 0; // Sobreposição vertical acumulada
+        let pushLeft = false, pushRight = false, pushTop = false, pushBottom = false;
+
         for (const obs of currentObstacles) {
           const bounds = checkCollision(x, y, size, obs, elapsed);
           if (!bounds) continue;
 
           if (obs.type === 'wall' || obs.type === 'destructible' || obs.type === 'filling_wall') {
-            // Lógica de empurrão
-            const dx1 = (x + size) - bounds.x;
-            const dx2 = (bounds.x + bounds.w) - x;
-            const dy1 = (y + size) - bounds.y;
-            const dy2 = (bounds.y + bounds.h) - y;
+            const dx1 = (x + size) - bounds.x; // Player entrando pela esquerda da parede
+            const dx2 = (bounds.x + bounds.w) - x; // Player entrando pela direita da parede
+            const dy1 = (y + size) - bounds.y; // Player entrando por cima
+            const dy2 = (bounds.y + bounds.h) - y; // Player entrando por baixo
             const min = Math.min(dx1, dx2, dy1, dy2);
 
-            let oldX = x, oldY = y;
-
-            if (min === dx1) { x = bounds.x - size; vx = -Math.abs(vx); } 
-            else if (min === dx2) { x = bounds.x + bounds.w; vx = Math.abs(vx); }
-            else if (min === dy1) { y = bounds.y - size; vy = -Math.abs(vy); } 
-            else if (min === dy2) { y = bounds.y + bounds.h; vy = Math.abs(vy); }
-            
-            // Verificação de ESMAGAMENTO (Squash)
-            // Se após ser empurrado por esta parede, o jogador estiver colidindo com QUALQUER OUTRA parede sólida
-            for (const otherObs of currentObstacles) {
-              if (otherObs.id === obs.id) continue;
-              if (otherObs.type === 'wall' || otherObs.type === 'destructible' || otherObs.type === 'filling_wall') {
-                const otherBounds = checkCollision(x, y, size, otherObs, elapsed);
-                if (otherBounds) {
-                  // Se houver colisão dupla, é esmagado!
-                  isEliminated = true;
-                  playSound('squash');
-                  createParticles(x + size/2, y + size/2, '#ff0050', 50, 6, 20);
-                  break;
-                }
-              }
+            // Resolução de colisão com "Sliding" (deslizamento)
+            // Empurramos o jogador para fora do obstáculo
+            if (min === dx1) { 
+              x = bounds.x - size; vx = -Math.abs(vx); pushRight = true; 
+              overlapH += dx1;
+            } 
+            else if (min === dx2) { 
+              x = bounds.x + bounds.w; vx = Math.abs(vx); pushLeft = true; 
+              overlapH += dx2;
             }
-
+            else if (min === dy1) { 
+              y = bounds.y - size; vy = -Math.abs(vy); pushBottom = true; 
+              overlapV += dy1;
+            } 
+            else if (min === dy2) { 
+              y = bounds.y + bounds.h; vy = Math.abs(vy); pushTop = true; 
+              overlapV += dy2;
+            }
+            
+            // Lógica para obstáculos destrutíveis
             if (obs.type === 'destructible' && obs.health !== undefined) {
               const now = Date.now(); 
               if (!destructibleCooldowns.current[obs.id] || now - destructibleCooldowns.current[obs.id] > 100) {
@@ -279,7 +287,7 @@ const SimulationEngine = forwardRef((props: EngineProps, ref) => {
                 createParticles(bounds.x + bounds.w/2, bounds.y + bounds.h/2, obs.color || '#fff', 20, 4, 10);
                 if (obs.health <= 0) obsToRemove.push(obs.id);
               }
-            } else if (!isEliminated) {
+            } else {
               playSound('impact');
             }
           } else if (obs.type === 'death') {
@@ -295,12 +303,25 @@ const SimulationEngine = forwardRef((props: EngineProps, ref) => {
               createParticles(x + size/2, y + size/2, p.color, 15, 3); 
             }
           }
-
-          if (isEliminated) break;
         }
 
+        // =====================================================================
+        // LOGICA DE ESMAGAMENTO (SQUASH): 2% DE TOLERÂNCIA
+        // =====================================================================
+        // O jogador só é eliminado se estiver sendo pressionado por dois lados opostos
+        // e o espaço livre para ele for menor que 2% do seu tamanho (ou seja, ele entrou 98% dentro das paredes).
+        const crushThreshold = size * 0.99; 
+        
+        if ((pushLeft && pushRight && overlapH > crushThreshold) || 
+            (pushTop && pushBottom && overlapV > crushThreshold)) {
+          isEliminated = true;
+          playSound('squash');
+          createParticles(x + size/2, y + size/2, '#ff0050', 60, 6, 25);
+        }
+        // =====================================================================
+
         const mag = Math.sqrt(vx * vx + vy * vy); if (mag > 0) { vx = (vx / mag) * baseSpeed; vy = (vy / mag) * baseSpeed; }
-        return { ...p, x, y, vx, vy, size, isEliminated, usedPowerups, finished, health };
+        return { ...p, x, y, vx, vy, size, isEliminated, usedPowerups, finished };
       });
 
       obsToRemove.forEach(id => onRemoveObstacle(id));
@@ -327,112 +348,41 @@ const SimulationEngine = forwardRef((props: EngineProps, ref) => {
     return () => { if (animationRef.current) cancelAnimationFrame(animationRef.current); };
   }, [state.isRunning, state.obstacles.length]);
 
-  // Renderização Principal
+  // Renderização
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return;
     const ctx = canvas.getContext('2d', { alpha: false }); if (!ctx) return;
     const render = () => {
       const elapsed = gameStartTimeRef.current ? (Date.now() - gameStartTimeRef.current) / 1000 : 0;
-      
-      // Background
       ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-      const time = Date.now() * 0.001;
-      const gradCyan = ctx.createRadialGradient(CANVAS_WIDTH * 0.2 + Math.sin(time * 0.5) * 50, CANVAS_HEIGHT * 0.3 + Math.cos(time * 0.5) * 50, 0, CANVAS_WIDTH * 0.2, CANVAS_HEIGHT * 0.3, 300);
-      gradCyan.addColorStop(0, 'rgba(0, 242, 234, 0.08)'); gradCyan.addColorStop(1, 'rgba(0, 0, 0, 0)'); ctx.fillStyle = gradCyan; ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-      starsRef.current.forEach(star => { star.opacity += star.blinkSpeed; if (star.opacity > 1 || star.opacity < 0.2) star.blinkSpeed *= -1; ctx.fillStyle = `rgba(255, 255, 255, ${star.opacity})`; ctx.beginPath(); ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2); ctx.fill(); });
       
-      // Partículas
+      starsRef.current.forEach(star => { star.opacity += star.blinkSpeed; if (star.opacity > 1 || star.opacity < 0.2) star.blinkSpeed *= -1; ctx.fillStyle = `rgba(255, 255, 255, ${star.opacity})`; ctx.beginPath(); ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2); ctx.fill(); });
       particles.current = particles.current.filter(p => { p.x += p.vx; p.y += p.vy; p.life -= 0.02; ctx.globalAlpha = p.life; ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, p.size, p.size); return p.life > 0; });
       ctx.globalAlpha = 1.0;
 
-      // Obstáculos
       state.obstacles.forEach(obs => {
         const bounds = getDynamicObstacleBounds(obs, elapsed);
-        
         ctx.save();
-        
-        // Desenha a área total (fantasma) para paredes de enchimento no editor ou durante animação
-        if (obs.type === 'filling_wall') {
-          ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-          ctx.setLineDash([5, 5]);
-          ctx.strokeRect(obs.x, obs.y, obs.width, obs.height);
-          ctx.setLineDash([]);
-        }
-
+        if (obs.type === 'filling_wall') { ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.setLineDash([5, 5]); ctx.strokeRect(obs.x, obs.y, obs.width, obs.height); ctx.setLineDash([]); }
         if (!bounds.isActive) { ctx.restore(); return; }
-
         ctx.translate(bounds.x + bounds.w / 2, bounds.y + bounds.h / 2); 
         ctx.rotate((obs.rotation || 0) * Math.PI / 180); 
         ctx.translate(-(bounds.w / 2), -(bounds.h / 2));
-        
-        if (obs.type === 'death') { 
-          ctx.fillStyle = '#ff0050'; ctx.shadowBlur = 15; ctx.shadowColor = '#ff0050'; ctx.fillRect(0, 0, bounds.w, bounds.h); 
-          ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(0, 0, bounds.w, bounds.h); 
-        }
-        else if (obs.type === 'filling_wall') {
-          const color = obs.color || '#00f2ea';
-          const pulse = Math.sin(time * 5) * 0.1 + 0.9; // Efeito de perigo pulsante
-          ctx.fillStyle = color;
-          ctx.shadowBlur = 10 * pulse; ctx.shadowColor = color;
-          ctx.globalAlpha = 0.8 + (pulse * 0.2);
-          ctx.fillRect(0, 0, bounds.w, bounds.h);
-          
-          // Bordas de "Perigo/Cuidado" se estiver crescendo
-          if (bounds.isGrowing) {
-             ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(0, 0, bounds.w, bounds.h);
-             ctx.setLineDash([5, 5]);
-             ctx.strokeStyle = '#000'; ctx.strokeRect(0, 0, bounds.w, bounds.h);
-          } else {
-             ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.strokeRect(0, 0, bounds.w, bounds.h);
-          }
-        }
-        else if (obs.type === 'destructible') { 
-          ctx.fillStyle = obs.color || '#f97316'; ctx.fillRect(0, 0, bounds.w, bounds.h); 
-          ctx.strokeStyle = '#fff5'; ctx.strokeRect(0, 0, bounds.w, bounds.h); 
-          if (obs.health !== undefined) { 
-            ctx.fillStyle = '#fff'; ctx.font = '900 12px Bungee'; ctx.textAlign = 'center'; ctx.fillText(obs.health.toString(), bounds.w/2, bounds.h/2+5); 
-          } 
-        }
-        else if (obs.type === 'finish') { 
-          ctx.fillStyle = '#22c55e'; ctx.shadowBlur = 20; ctx.shadowColor = '#22c55e'; ctx.fillRect(0, 0, bounds.w, bounds.h); 
-          ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(0, 0, bounds.w, bounds.h); 
-        }
-        else if (obs.type === 'powerup') { 
-          let pColor = obs.powerupType === 'shrink' ? '#a855f7' : '#f97316'; 
-          ctx.fillStyle = pColor + '44'; ctx.shadowBlur = 15; ctx.shadowColor = pColor; ctx.fillRect(0, 0, bounds.w, bounds.h); 
-          ctx.strokeStyle = pColor; ctx.setLineDash([4, 4]); ctx.strokeRect(0, 0, bounds.w, bounds.h); ctx.setLineDash([]); 
-        }
-        else { 
-          ctx.fillStyle = obs.color || '#1a1a1e'; ctx.fillRect(0, 0, bounds.w, bounds.h); 
-          ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.strokeRect(0, 0, bounds.w, bounds.h); 
-        }
-        
-        if (selectedId === obs.id) { 
-          ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 3; ctx.strokeRect(-4,-4,bounds.w+8,bounds.h+8); 
-        }
+        if (obs.type === 'death') { ctx.fillStyle = '#ff0050'; ctx.shadowBlur = 15; ctx.shadowColor = '#ff0050'; ctx.fillRect(0, 0, bounds.w, bounds.h); }
+        else if (obs.type === 'filling_wall') { const color = obs.color || '#00f2ea'; ctx.fillStyle = color; ctx.shadowBlur = 10; ctx.shadowColor = color; ctx.fillRect(0, 0, bounds.w, bounds.h); if (bounds.isGrowing) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(0, 0, bounds.w, bounds.h); } }
+        else if (obs.type === 'destructible') { ctx.fillStyle = obs.color || '#f97316'; ctx.fillRect(0, 0, bounds.w, bounds.h); if (obs.health !== undefined) { ctx.fillStyle = '#fff'; ctx.font = '900 12px Bungee'; ctx.textAlign = 'center'; ctx.fillText(obs.health.toString(), bounds.w/2, bounds.h/2+5); } }
+        else if (obs.type === 'finish') { ctx.fillStyle = '#22c55e'; ctx.shadowBlur = 20; ctx.shadowColor = '#22c55e'; ctx.fillRect(0, 0, bounds.w, bounds.h); }
+        else if (obs.type === 'powerup') { let pColor = obs.powerupType === 'shrink' ? '#a855f7' : '#f97316'; ctx.fillStyle = pColor + '44'; ctx.shadowBlur = 15; ctx.shadowColor = pColor; ctx.fillRect(0, 0, bounds.w, bounds.h); ctx.strokeStyle = pColor; ctx.setLineDash([4, 4]); ctx.strokeRect(0, 0, bounds.w, bounds.h); ctx.setLineDash([]); }
+        else { ctx.fillStyle = obs.color || '#1a1a1e'; ctx.fillRect(0, 0, bounds.w, bounds.h); ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.strokeRect(0, 0, bounds.w, bounds.h); }
+        if (selectedId === obs.id) { ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 3; ctx.strokeRect(-4,-4,bounds.w+8,bounds.h+8); }
         ctx.restore();
       });
 
-      // Jogadores
       state.players.forEach(p => { if (p.isEliminated || p.finished) return; ctx.save(); ctx.shadowBlur = 15; ctx.shadowColor = p.color; ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, p.size, p.size); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(p.x, p.y, p.size, p.size); ctx.restore(); });
       
-      // HUD / Contagem
-      if (countdown !== null) {
-        ctx.save(); ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT); ctx.font = 'bold 120px Bungee'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#ff0050'; ctx.shadowBlur = 30; ctx.shadowColor = '#ff0050'; ctx.fillText(countdown === 0 ? 'GO!' : countdown.toString(), CANVAS_WIDTH/2, CANVAS_HEIGHT/2); ctx.restore();
-      }
-
-      // Vencedor
-      if (state.winner) {
-        ctx.save(); ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-        const modalW = 320; const modalH = 260; const mx = (CANVAS_WIDTH - modalW)/2; const my = (CANVAS_HEIGHT - modalH)/2;
-        ctx.fillStyle = '#111'; ctx.strokeStyle = '#00f2ea'; ctx.lineWidth = 4; ctx.beginPath(); ctx.roundRect(mx, my, modalW, modalH, 30); ctx.fill(); ctx.stroke();
-        ctx.font = '900 24px Bungee'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.fillText('VENCEDOR!', CANVAS_WIDTH/2, my + 50);
-        ctx.shadowBlur = 20; ctx.shadowColor = state.winner.color; ctx.fillStyle = state.winner.color; ctx.fillRect(CANVAS_WIDTH/2 - 40, my + 70, 80, 80); ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.strokeRect(CANVAS_WIDTH/2 - 40, my + 70, 80, 80);
-        ctx.font = 'bold 22px Inter'; ctx.shadowBlur = 0; ctx.fillStyle = '#fff'; ctx.fillText(state.winner.name, CANVAS_WIDTH/2, my + 190); ctx.restore();
-      }
-
+      if (countdown !== null) { ctx.save(); ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT); ctx.font = 'bold 120px Bungee'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#ff0050'; ctx.shadowBlur = 30; ctx.shadowColor = '#ff0050'; ctx.fillText(countdown === 0 ? 'GO!' : countdown.toString(), CANVAS_WIDTH/2, CANVAS_HEIGHT/2); ctx.restore(); }
+      if (state.winner) { ctx.save(); ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT); const modalW = 320; const modalH = 260; const mx = (CANVAS_WIDTH - modalW)/2; const my = (CANVAS_HEIGHT - modalH)/2; ctx.fillStyle = '#111'; ctx.strokeStyle = '#00f2ea'; ctx.lineWidth = 4; ctx.beginPath(); ctx.roundRect(mx, my, modalW, modalH, 30); ctx.fill(); ctx.stroke(); ctx.font = '900 24px Bungee'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.fillText('VENCEDOR!', CANVAS_WIDTH/2, my + 50); ctx.shadowBlur = 20; ctx.shadowColor = state.winner.color; ctx.fillStyle = state.winner.color; ctx.fillRect(CANVAS_WIDTH/2 - 40, my + 70, 80, 80); ctx.font = 'bold 22px Inter'; ctx.shadowBlur = 0; ctx.fillStyle = '#fff'; ctx.fillText(state.winner.name, CANVAS_WIDTH/2, my + 190); ctx.restore(); }
       if (previewRect) { ctx.strokeStyle = '#00f2ea'; ctx.setLineDash([5, 5]); ctx.strokeRect(previewRect.x, previewRect.y, previewRect.width, previewRect.height); ctx.setLineDash([]); }
-
       animationRef.current = requestAnimationFrame(render);
     };
     animationRef.current = requestAnimationFrame(render);
