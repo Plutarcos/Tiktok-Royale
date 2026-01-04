@@ -441,7 +441,7 @@ const SimulationEngine = forwardRef((props: EngineProps, ref) => {
 
   return (
     <div className="w-full h-full p-4 flex items-center justify-center">
-      <div className="canvas-container rounded-[40px] overflow-hidden relative border-4 border-[#0f0f12]">
+      <div className="canvas-container overflow-hidden relative border-4 border-[#0f0f12]">
         <canvas ref={canvasRef} width={CANVAS_WIDTH} height={CANVAS_HEIGHT} className="cursor-crosshair shadow-2xl" style={{ width: 'auto', height: '100%', maxHeight: '780px', aspectRatio: '9/16' }}
           onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} />
       </div>
