@@ -1,12 +1,29 @@
 
 import { GoogleGenAI } from "@google/genai";
 
-// Fixed: Initializing GoogleGenAI directly with process.env.API_KEY as per guidelines
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+/**
+ * Obtém a chave de API de forma segura tanto em dev quanto em produção.
+ */
+const getSafeApiKey = () => {
+  try {
+    // Tenta obter do window (shimmed em index.html) ou do process.env direto
+    return (window as any).process?.env?.API_KEY || process.env.API_KEY || "";
+  } catch (e) {
+    return "";
+  }
+};
 
 export const getCommentary = async (event: string, players: string[]): Promise<string> => {
+  const apiKey = getSafeApiKey();
+  
+  // Se não houver chave, retorna comentário padrão sem quebrar o app
+  if (!apiKey) {
+    return "A ação está frenética!";
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+
   try {
-    // Fixed: Always use ai.models.generateContent to query GenAI with both the model name and prompt.
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: `Você é um narrador engraçado e carismático de um Battle Royale do TikTok. 
@@ -14,7 +31,7 @@ export const getCommentary = async (event: string, players: string[]): Promise<s
       Alguns jogadores envolvidos: ${players.join(', ')}.
       Crie uma frase curta de narração épica ou engraçada (máximo 15 palavras).`,
     });
-    // response.text directly returns the extracted string output.
+    
     return response.text || "A batalha está insana!";
   } catch (error) {
     console.error("Gemini Error:", error);

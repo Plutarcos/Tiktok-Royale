@@ -7,6 +7,14 @@
     <title>Simulando2D Pro - TikTok Space Royale</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Inter:wght@400;900&display=swap" rel="stylesheet">
+    <script>
+      // Shim global para o objeto process, fundamental para evitar ReferenceErrors em navegadores
+      window.process = {
+        env: {
+          API_KEY: ""
+        }
+      };
+    </script>
     <style>
       body { 
         font-family: 'Inter', sans-serif; 
@@ -16,7 +24,6 @@
       }
       .font-bungee { font-family: 'Bungee', cursive; }
       
-      /* Efeito de Espaço Profundo */
       .space-bg {
         background-color: #000000;
         background-image: 
@@ -55,20 +62,23 @@
         box-shadow: 0 0 10px #00f2ea;
       }
     </style>
-  <script type="importmap">
+    <script type="importmap">
 {
   "imports": {
-    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "react": "https://esm.sh/react@^19.2.3",
-    "@google/genai": "https://esm.sh/@google/genai@^1.34.0",
+    "lucide-react": "https://esm.sh/lucide-react@0.460.0",
+    "react": "https://esm.sh/react@19.0.0",
+    "react-dom": "https://esm.sh/react-dom@19.0.0",
+    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
+    "@google/genai": "https://esm.sh/@google/genai@1.34.0",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "papaparse": "https://esm.sh/papaparse@^5.4.1"
+    "react/": "https://esm.sh/react@^19.2.3/"
   }
 }
 </script>
-</head>
+  </head>
   <body class="space-bg">
     <div id="root"></div>
+    <!-- Importação relativa para melhor compatibilidade com Vercel -->
+    <script type="module" src="index.tsx"></script>
   </body>
 </html>
