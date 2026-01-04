@@ -1,5 +1,5 @@
 
-export type ObstacleType = 'wall' | 'death' | 'powerup' | 'destructible' | 'finish';
+export type ObstacleType = 'wall' | 'death' | 'powerup' | 'destructible' | 'finish' | 'filling_wall';
 
 export interface Obstacle {
   id: string;
@@ -13,6 +13,10 @@ export interface Obstacle {
   powerupType?: 'shrink' | 'grow';
   health?: number;
   maxHealth?: number;
+  // Propriedades para paredes de enchimento
+  fillingStartTime?: number; // em segundos
+  fillingDuration?: number;  // em segundos
+  fillingDirection?: 'up' | 'down' | 'left' | 'right';
 }
 
 export type SpawnLayout = 'horizontal' | 'vertical' | 'square';
