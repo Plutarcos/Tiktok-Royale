@@ -7,7 +7,8 @@ import {
   Trash2, XCircle, MapPin, 
   Hammer, Flag, Trash, 
   RotateCcw, Pause, Video, VideoOff, RefreshCw,
-  MinusCircle, PlusCircle, Dices, Loader2, ArrowRight
+  MinusCircle, PlusCircle, Dices, Loader2, ArrowRight,
+  LayoutGrid, LayoutList, Grip
 } from 'lucide-react';
 import { generateMockFollowers } from './utils/mockData';
 
@@ -134,7 +135,6 @@ const App: React.FC = () => {
           setMapSnapshot(currentObstacles);
         }
 
-        // Reseta o tempo no engine
         engineRef.current?.stopSimulation();
 
         setGameState(prev => ({
@@ -170,6 +170,8 @@ const App: React.FC = () => {
   };
 
   const applySpawnLayout = (x: number, y: number, layout: SpawnLayout, players: Player[]) => {
+    if (layout === 'manual') return players; // Não altera nada em modo manual
+    
     const spacing = 32;
     return players.map((p, i) => {
       let nx = x, ny = y;
@@ -177,6 +179,18 @@ const App: React.FC = () => {
       else if (layout === 'horizontal') { nx = x + (i - (players.length - 1) / 2) * spacing; }
       else if (layout === 'vertical') { ny = y + (i - (players.length - 1) / 2) * spacing; }
       return { ...p, x: nx, y: ny, spawnX: nx, spawnY: ny, vx: 0, vy: 0, isEliminated: false, finished: false, usedPowerups: [], health: 100 };
+    });
+  };
+
+  const updateSpawnLayoutMode = (mode: SpawnLayout) => {
+    setGameState(prev => {
+      const sx = prev.players[0]?.spawnX || 225;
+      const sy = prev.players[0]?.spawnY || 100;
+      return {
+        ...prev,
+        config: { ...prev.config, spawnLayout: mode },
+        players: applySpawnLayout(sx, sy, mode, prev.players)
+      };
     });
   };
 
@@ -225,9 +239,23 @@ const App: React.FC = () => {
         {gameState.mode === GameMode.EDITOR && (
           <aside className="w-80 bg-[#0f0f12] border-r border-white/5 p-6 flex flex-col gap-6 overflow-y-auto custom-scrollbar">
             <div className="flex items-center justify-between"><p className="text-[10px] font-black text-[#00f2ea] uppercase tracking-widest">Builder Tools</p><button onClick={generateWinnableMap} className="p-2 bg-amber-500/10 text-amber-500 border border-amber-500/20 rounded-lg hover:bg-amber-500/20"><Dices size={18} /></button></div>
+            
+            <div className="space-y-4">
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Spawn Layout</p>
+              <div className="grid grid-cols-4 gap-2">
+                <button onClick={() => updateSpawnLayoutMode('square')} className={`p-2 rounded-lg border flex flex-col items-center gap-1 transition-all ${gameState.config.spawnLayout === 'square' ? 'bg-[#00f2ea]/10 border-[#00f2ea] text-[#00f2ea]' : 'border-white/5 text-slate-500'}`} title="Quadrado"><LayoutGrid size={18}/><span className="text-[8px] font-bold">QUAD</span></button>
+                <button onClick={() => updateSpawnLayoutMode('horizontal')} className={`p-2 rounded-lg border flex flex-col items-center gap-1 transition-all ${gameState.config.spawnLayout === 'horizontal' ? 'bg-[#00f2ea]/10 border-[#00f2ea] text-[#00f2ea]' : 'border-white/5 text-slate-500'}`} title="Horizontal"><LayoutList size={18}/><span className="text-[8px] font-bold">HORI</span></button>
+                <button onClick={() => updateSpawnLayoutMode('vertical')} className={`p-2 rounded-lg border flex flex-col items-center gap-1 transition-all ${gameState.config.spawnLayout === 'vertical' ? 'bg-[#00f2ea]/10 border-[#00f2ea] text-[#00f2ea]' : 'border-white/5 text-slate-500'}`} title="Vertical"><LayoutList size={18} className="rotate-90"/><span className="text-[8px] font-bold">VERT</span></button>
+                <button onClick={() => setGameState(s => ({ ...s, config: { ...s.config, spawnLayout: 'manual' } }))} className={`p-2 rounded-lg border flex flex-col items-center gap-1 transition-all ${gameState.config.spawnLayout === 'manual' ? 'bg-amber-500/10 border-amber-500 text-amber-500' : 'border-white/5 text-slate-500'}`} title="Manual (Arraste os jogadores)"><Grip size={18}/><span className="text-[8px] font-bold">LIVRE</span></button>
+              </div>
+              {gameState.config.spawnLayout === 'manual' && (
+                <p className="text-[9px] text-amber-500/60 leading-tight">No modo <b>LIVRE</b>, use a ferramenta <b>MOVER</b> para arrastar cada seguidor para seu local de início.</p>
+              )}
+            </div>
+
             <div className="grid grid-cols-2 gap-2">
               <ToolBtn active={tool === 'select'} onClick={() => setTool('select')} icon={<MousePointer2 size={18} />} label="Mover" color="text-amber-400" />
-              <ToolBtn active={tool === 'spawn'} onClick={() => setTool('spawn')} icon={<MapPin size={18} />} label="Início" color="text-[#00f2ea]" />
+              <ToolBtn active={tool === 'spawn'} onClick={() => setTool('spawn')} icon={<MapPin size={18} />} label="Grupo" color="text-[#00f2ea]" />
               <ToolBtn active={tool === 'wall'} onClick={() => setTool('wall')} icon={<SquareIcon size={18} />} label="Parede" color="text-slate-300" />
               <ToolBtn active={tool === 'filling_wall'} onClick={() => setTool('filling_wall')} icon={<ArrowRight size={18} />} label="Enchimento" color="text-[#00f2ea]" />
               <ToolBtn active={tool === 'finish'} onClick={() => setTool('finish')} icon={<Flag size={18} />} label="Chegada" color="text-green-400" />
@@ -236,6 +264,7 @@ const App: React.FC = () => {
               <ToolBtn active={tool === 'shrink'} onClick={() => setTool('shrink')} icon={<MinusCircle size={18} />} label="Mini" color="text-purple-400" />
               <ToolBtn active={tool === 'grow'} onClick={() => setTool('grow')} icon={<PlusCircle size={18} />} label="Maxi" color="text-blue-400" />
             </div>
+            
             {selectedObstacle && (
               <div className="pt-4 border-t border-white/5 bg-black/20 p-4 rounded-xl space-y-4 animate-in slide-in-from-right duration-200">
                 <div className="flex items-center justify-between"><p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Propriedades</p><button onClick={() => { setGameState(s => ({ ...s, obstacles: s.obstacles.filter(o => o.id !== selectedId) })); setSelectedId(null); }} className="text-red-500 p-1"><Trash2 size={14}/></button></div>
@@ -256,7 +285,10 @@ const App: React.FC = () => {
           <SimulationEngine 
             ref={engineRef} state={gameState} tool={tool as any} useSnap={useSnap} selectedId={selectedId} countdown={countdown}
             onUpdatePlayers={(p) => setGameState(s => ({...s, players: p}))} 
-            onUpdateSpawn={(x, y) => setGameState(s => ({ ...s, players: applySpawnLayout(x, y, s.config.spawnLayout, s.players) }))} 
+            onUpdateSpawn={(x, y) => setGameState(s => {
+              if (s.config.spawnLayout === 'manual') return s; // Spawn layout individual ignora o spawn point geral
+              return { ...s, players: applySpawnLayout(x, y, s.config.spawnLayout, s.players) };
+            })} 
             onAddObstacle={(obs) => { let finalType = obs.type; let pwr = undefined; if (tool === 'shrink') { finalType = 'powerup'; pwr = 'shrink'; } else if (tool === 'grow') { finalType = 'powerup'; pwr = 'grow'; } setGameState(s => ({...s, obstacles: [...s.obstacles, { ...obs, type: finalType, powerupType: pwr as any, color: selectedColor, health: finalType === 'destructible' ? 3 : 1, fillingStartTime: 0, fillingDuration: 5, fillingDirection: 'down' }]})); }} 
             onUpdateObstacle={(updated) => setGameState(s => ({ ...s, obstacles: s.obstacles.map(o => o.id === updated.id ? updated : o) }))}
             onRemoveObstacle={(id) => setGameState(s => ({ ...s, obstacles: s.obstacles.filter(o => o.id !== id) }))}

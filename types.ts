@@ -19,7 +19,7 @@ export interface Obstacle {
   fillingDirection?: 'up' | 'down' | 'left' | 'right';
 }
 
-export type SpawnLayout = 'horizontal' | 'vertical' | 'square';
+export type SpawnLayout = 'horizontal' | 'vertical' | 'square' | 'manual';
 
 export interface Player {
   id: string;
